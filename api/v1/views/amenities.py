@@ -1,99 +1,80 @@
 #!/usr/bin/python3
+"""Routings for amenity-related API requests
 """
-route for handling Amenity objects and operations
-"""
+
+from api.v1.views import app_views
 from flask import jsonify, abort, request
-from api.v1.views import app_views, storage
-from models.amenity import Amenity
+from models import storage
 
 
-@app_views.route("/amenities", methods=["GET"], strict_slashes=False)
-def amenity_get_all():
-    """
-    retrieves all Amenity objects
-    :return: json of all states
-    """
-    am_list = []
-    am_obj = storage.all("Amenity")
-    for obj in am_obj.values():
-        am_list.append(obj.to_json())
-
-    return jsonify(am_list)
-
-
-@app_views.route("/amenities", methods=["POST"], strict_slashes=False)
-def amenity_create():
-    """
-    create amenity route
-    :return: newly created amenity obj
-    """
-    am_json = request.get_json(silent=True)
-    if am_json is None:
-        abort(400, 'Not a JSON')
-    if "name" not in am_json:
-        abort(400, 'Missing name')
-
-    new_am = Amenity(**am_json)
-    new_am.save()
-    resp = jsonify(new_am.to_json())
-    resp.status_code = 201
-
-    return resp
-
-
-@app_views.route("/amenities/<amenity_id>",  methods=["GET"],
+@app_views.route('/amenities', methods=['GET', 'POST'], strict_slashes=False)
+@app_views.route('/amenities/<amenity_id>', methods=['GET', 'DELETE', 'PUT'],
                  strict_slashes=False)
-def amenity_by_id(amenity_id):
+def amenity_methods(amenity_id=None):
+    """Handle requests to API for amentities
     """
-    gets a specific Amenity object by ID
-    :param amenity_id: amenity object id
-    :return: state obj with the specified id or error
-    """
+    from models.amenity import Amenity
+    amenities = storage.all(Amenity)
 
-    fetched_obj = storage.get("Amenity", str(amenity_id))
+    # GET REQUESTS
+    if request.method == 'GET':
+        if not amenity_id:  # if no id specified, return all
+            return jsonify([obj.to_dict() for obj in amenities.values()])
 
-    if fetched_obj is None:
-        abort(404)
+        key = 'Amenity.' + amenity_id
+        try:  # if obj exists in dictionary, convert from obj -> dict -> json
+            return jsonify(amenities[key].to_dict())
+        except KeyError:
+            abort(404)  # Amenity with amenity_id does not exist
 
-    return jsonify(fetched_obj.to_json())
+    # DELETE REQUESTS
+    elif request.method == 'DELETE':
+        try:
+            key = 'Amenity.' + amenity_id
+            storage.delete(amenities[key])
+            storage.save()
+            return jsonify({}), 200
+        except:
+            abort(404)
 
+    # POST REQUESTS
+    elif request.method == 'POST':
+        # convert JSON request to dict
+        if request.is_json:
+            body_request = request.get_json()
+        else:
+            abort(400, 'Not a JSON')
 
-@app_views.route("/amenities/<amenity_id>",  methods=["PUT"],
-                 strict_slashes=False)
-def amenity_put(amenity_id):
-    """
-    updates specific Amenity object by ID
-    :param amenity_id: amenity object ID
-    :return: amenity object and 200 on success, or 400 or 404 on failure
-    """
-    am_json = request.get_json(silent=True)
-    if am_json is None:
-        abort(400, 'Not a JSON')
-    fetched_obj = storage.get("Amenity", str(amenity_id))
-    if fetched_obj is None:
-        abort(404)
-    for key, val in am_json.items():
-        if key not in ["id", "created_at", "updated_at"]:
-            setattr(fetched_obj, key, val)
-    fetched_obj.save()
-    return jsonify(fetched_obj.to_json())
+        # instantiate, store, and return new Amenity object
+        if 'name' in body_request:
+            new_amenity = Amenity(**body_request)
+            storage.new(new_amenity)
+            storage.save()
+            return jsonify(new_amenity.to_dict()), 201
+        else:  # if request does not contain required attribute
+            abort(400, 'Missing name')
 
+    # PUT REQUESTS
+    elif request.method == 'PUT':
+        key = 'Amenity.' + amenity_id
+        try:
+            amenity = amenities[key]
 
-@app_views.route("/amenities/<amenity_id>",  methods=["DELETE"],
-                 strict_slashes=False)
-def amenity_delete_by_id(amenity_id):
-    """
-    deletes Amenity by id
-    :param amenity_id: Amenity object id
-    :return: empty dict with 200 or 404 if not found
-    """
+            # convert JSON request to dict
+            if request.is_json:
+                body_request = request.get_json()
+            else:
+                abort(400, 'Not a JSON')
 
-    fetched_obj = storage.get("Amenity", str(amenity_id))
+            for key, val in body_request.items():
+                if key != 'id' and key != 'created_at' and key != 'updated_at':
+                    setattr(amenity, key, val)
 
-    if fetched_obj is None:
-        abort(404)
+            storage.save()
+            return jsonify(amenity.to_dict()), 200
+        except KeyError:
+            abort(404)
 
-    storage.delete(fetched_obj)
-    storage.save()
-
-    return jsonify({})
+    # UNSUPPORTED REQUESTS
+    else:
+        abort(501)
